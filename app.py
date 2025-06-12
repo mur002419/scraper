@@ -1,9 +1,6 @@
 from flask import Flask, request, jsonify
 from amazon_paapi import AmazonApi
-from dotenv import load_dotenv
 import os
-
-load_dotenv()  # Carica variabili da .env
 
 app = Flask(__name__)
 
