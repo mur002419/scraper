@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from amazon_paapi import AmazonApi
 import os
-import traceback
+import re
 
 app = Flask(__name__)
 
@@ -10,10 +10,6 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 ASSOCIATE_TAG = os.getenv("AWS_ASSOCIATE_TAG")
 REGION = os.getenv("AMAZON_REGION", "IT")
-
-print(f"AWS_ACCESS_KEY: {AWS_ACCESS_KEY}")
-print(f"ASSOCIATE_TAG: {ASSOCIATE_TAG}")
-print(f"REGION: {REGION}")
 
 amazon = AmazonApi(
     AWS_ACCESS_KEY,
@@ -29,11 +25,10 @@ def scrape():
     if not url:
         return jsonify({"error": "Missing URL"}), 400
 
-    import re
+    # Estrai ASIN dall'URL Amazon
     match = re.search(r"/dp/([A-Z0-9]{10})", url)
     if not match:
         return jsonify({"error": "URL non valido o ASIN non trovato"}), 400
-
     asin = match.group(1)
 
     try:
@@ -43,19 +38,38 @@ def scrape():
 
         product = products[0]
 
+        # Estrazione dati con check per evitare errori
+        title = ""
+        description = ""
+        img_url = ""
+        price = ""
+
+        if product.item_info and product.item_info.title:
+            title = product.item_info.title.display_value
+
+        if product.item_info and product.item_info.features and product.item_info.features.display_values:
+            description = product.item_info.features.display_values[0]
+
+        if product.images and product.images.primary and product.images.primary.large:
+            img_url = product.images.primary.large.url
+
+        if product.offers and product.offers.listings:
+            offer = product.offers.listings[0]
+            if offer.price:
+                price = f"{offer.price.amount} {offer.price.currency}"
+
         response = {
-            "title": product.title,
-            "description": product.features[0] if product.features else "",
-            "img_url": product.images[0].url if product.images else "",
-            "price": product.price_and_currency.price if product.price_and_currency else "",
-            "old_price": "",
-            "coupon": ""
+            "title": title,
+            "description": description,
+            "img_url": img_url,
+            "price": price,
+            "old_price": "",  # Non disponibile direttamente da PA API
+            "coupon": ""      # Non disponibile direttamente da PA API
         }
+
         return jsonify(response)
 
     except Exception as e:
-        # Stampa stacktrace completo nei log
-        traceback.print_exc()
         return jsonify({"error": f"Errore Amazon PA API: {str(e)}"}), 500
 
 if __name__ == "__main__":
