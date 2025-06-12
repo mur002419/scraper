@@ -8,7 +8,7 @@ app = Flask(__name__)
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 ASSOCIATE_TAG = os.getenv("AWS_ASSOCIATE_TAG")
-REGION = os.getenv("AWS_REGION", "IT")
+REGION = os.getenv("AMAZON_REGION", "IT")
 
 amazon = AmazonApi(
     AWS_ACCESS_KEY,
