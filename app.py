@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from amazon_paapi import AmazonApi, AmazonException
+from amazon_paapi import AmazonApi
 from dotenv import load_dotenv
 import os
 
@@ -53,7 +53,7 @@ def scrape():
         }
         return jsonify(response)
 
-    except AmazonException as e:
+    except Exception as e:
         return jsonify({"error": f"Errore Amazon PA API: {str(e)}"}), 500
 
 if __name__ == "__main__":
