@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from amazon_paapi import AmazonApi
 import os
 import traceback
-import re
 
 app = Flask(__name__)
 
@@ -12,10 +11,9 @@ AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 ASSOCIATE_TAG = os.getenv("AWS_ASSOCIATE_TAG")
 REGION = os.getenv("AMAZON_REGION", "IT")
 
-print("AWS_ACCESS_KEY:", AWS_ACCESS_KEY)
-print("AWS_SECRET_KEY:", "[hidden]" if AWS_SECRET_KEY else None)
-print("ASSOCIATE_TAG:", ASSOCIATE_TAG)
-print("REGION:", REGION)
+print(f"AWS_ACCESS_KEY: {AWS_ACCESS_KEY}")
+print(f"ASSOCIATE_TAG: {ASSOCIATE_TAG}")
+print(f"REGION: {REGION}")
 
 amazon = AmazonApi(
     AWS_ACCESS_KEY,
@@ -31,13 +29,12 @@ def scrape():
     if not url:
         return jsonify({"error": "Missing URL"}), 400
 
-    # Estrai ASIN dall'URL Amazon
-    asin = None
+    import re
     match = re.search(r"/dp/([A-Z0-9]{10})", url)
-    if match:
-        asin = match.group(1)
-    else:
+    if not match:
         return jsonify({"error": "URL non valido o ASIN non trovato"}), 400
+
+    asin = match.group(1)
 
     try:
         products = amazon.get_items(asin)
@@ -51,13 +48,14 @@ def scrape():
             "description": product.features[0] if product.features else "",
             "img_url": product.images[0].url if product.images else "",
             "price": product.price_and_currency.price if product.price_and_currency else "",
-            "old_price": "",  # PA API non fornisce prezzo vecchio in modo diretto
-            "coupon": ""      # Non disponibile direttamente da PA API
+            "old_price": "",
+            "coupon": ""
         }
         return jsonify(response)
 
     except Exception as e:
-        traceback.print_exc()  # Stampa l'errore completo nel log
+        # Stampa stacktrace completo nei log
+        traceback.print_exc()
         return jsonify({"error": f"Errore Amazon PA API: {str(e)}"}), 500
 
 if __name__ == "__main__":
