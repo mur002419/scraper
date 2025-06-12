@@ -2,15 +2,31 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
+import re
 
 app = Flask(__name__)
-CORS(app, origins=["https://www.scontify.net"])  # Sostituisci con il tuo dominio frontend
+CORS(app)  # In produzione puoi specificare: CORS(app, origins=["https://www.scontify.net"])
+
+def clean_price(text):
+    if not text:
+        return ""
+    # Rimuove caratteri non numerici o duplicati tipo "199,99199,99"
+    parts = re.findall(r'\d+[\.,]?\d*', text)
+    seen = set()
+    cleaned = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            cleaned.append(p.replace(",", "."))
+    return f"{cleaned[0]}€" if cleaned else ""
 
 def scrape_amazon_data(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/113.0.0.0 Safari/537.36",
         "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
     }
+
     resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
         return {"error": "Impossibile accedere alla pagina"}
@@ -21,13 +37,11 @@ def scrape_amazon_data(url):
     title = soup.select_one("#productTitle")
     title_text = title.get_text(strip=True) if title else ""
 
-    # Descrizione: bullet points o fallback
-    description = ""
+    # Descrizione: bullet + alternativa in #productDescription
     bullets = soup.select("#feature-bullets ul li span")
-    if bullets:
-        description = " ".join(b.get_text(strip=True) for b in bullets)
+    description = " ".join(b.get_text(strip=True) for b in bullets) if bullets else ""
     if not description:
-        alt_desc = soup.select_one("#productDescription p, #productDescription")
+        alt_desc = soup.select_one("#productDescription")
         if alt_desc:
             description = alt_desc.get_text(strip=True)
 
@@ -35,34 +49,15 @@ def scrape_amazon_data(url):
     img = soup.select_one("#landingImage")
     img_url = img.get("src") if img else ""
 
-    # Prezzo attuale
-    price_text = ""
-    price_selectors = [
-        "#priceblock_ourprice",
-        "#priceblock_dealprice",
-        "#corePriceDisplay_desktop_feature_div .a-offscreen",
-        ".a-price .a-offscreen"  # fallback
-    ]
-    for selector in price_selectors:
-        el = soup.select_one(selector)
-        if el:
-            price_text = el.get_text(strip=True)
-            break
+    # Prezzo scontato
+    price_elem = soup.select_one("#priceblock_dealprice, #priceblock_saleprice, #priceblock_ourprice, .a-price .a-offscreen")
+    price_text = clean_price(price_elem.get_text()) if price_elem else ""
 
     # Prezzo vecchio
-    old_price_text = ""
-    old_price_selectors = [
-        ".priceBlockStrikePriceString",
-        ".a-price.a-text-price .a-offscreen",
-        ".a-price .a-text-price .a-offscreen"
-    ]
-    for selector in old_price_selectors:
-        el = soup.select_one(selector)
-        if el:
-            old_price_text = el.get_text(strip=True)
-            break
+    old_price_elem = soup.select_one(".priceBlockStrikePriceString, .a-text-price .a-offscreen")
+    old_price_text = clean_price(old_price_elem.get_text()) if old_price_elem else ""
 
-    # Coupon (se presente)
+    # Coupon
     coupon = ""
     coupon_box = soup.select_one(".couponBadge")
     if coupon_box:
