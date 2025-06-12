@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 from amazon_paapi import AmazonApi
 import os
+import traceback
+import re
 
 app = Flask(__name__)
 
@@ -9,6 +11,11 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 ASSOCIATE_TAG = os.getenv("AWS_ASSOCIATE_TAG")
 REGION = os.getenv("AMAZON_REGION", "IT")
+
+print("AWS_ACCESS_KEY:", AWS_ACCESS_KEY)
+print("AWS_SECRET_KEY:", "[hidden]" if AWS_SECRET_KEY else None)
+print("ASSOCIATE_TAG:", ASSOCIATE_TAG)
+print("REGION:", REGION)
 
 amazon = AmazonApi(
     AWS_ACCESS_KEY,
@@ -26,7 +33,6 @@ def scrape():
 
     # Estrai ASIN dall'URL Amazon
     asin = None
-    import re
     match = re.search(r"/dp/([A-Z0-9]{10})", url)
     if match:
         asin = match.group(1)
@@ -51,6 +57,7 @@ def scrape():
         return jsonify(response)
 
     except Exception as e:
+        traceback.print_exc()  # Stampa l'errore completo nel log
         return jsonify({"error": f"Errore Amazon PA API: {str(e)}"}), 500
 
 if __name__ == "__main__":
