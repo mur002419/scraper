@@ -1,90 +1,60 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
-import requests
-from bs4 import BeautifulSoup
-import re
+from amazon_paapi import AmazonApi, AmazonException
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Carica variabili da .env
 
 app = Flask(__name__)
-CORS(app)  # In produzione puoi specificare: CORS(app, origins=["https://www.scontify.net"])
 
-def clean_price(text):
-    if not text:
-        return ""
-    # Rimuove caratteri non numerici o duplicati tipo "199,99199,99"
-    parts = re.findall(r'\d+[\.,]?\d*', text)
-    seen = set()
-    cleaned = []
-    for p in parts:
-        if p not in seen:
-            seen.add(p)
-            cleaned.append(p.replace(",", "."))
-    return f"{cleaned[0]}€" if cleaned else ""
+# Config Amazon PA API
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+ASSOCIATE_TAG = os.getenv("AWS_ASSOCIATE_TAG")
+REGION = os.getenv("AWS_REGION", "IT")
 
-def scrape_amazon_data(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/113.0.0.0 Safari/537.36",
-        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
-    }
-
-    resp = requests.get(url, headers=headers)
-    if resp.status_code != 200:
-        return {"error": "Impossibile accedere alla pagina"}
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Titolo
-    title = soup.select_one("#productTitle")
-    title_text = title.get_text(strip=True) if title else ""
-
-    # Descrizione: bullet + alternativa in #productDescription
-    bullets = soup.select("#feature-bullets ul li span")
-    description = " ".join(b.get_text(strip=True) for b in bullets) if bullets else ""
-    if not description:
-        alt_desc = soup.select_one("#productDescription")
-        if alt_desc:
-            description = alt_desc.get_text(strip=True)
-
-    # Immagine
-    img = soup.select_one("#landingImage")
-    img_url = img.get("src") if img else ""
-
-    # Prezzo scontato
-    price_elem = soup.select_one("#priceblock_dealprice, #priceblock_saleprice, #priceblock_ourprice, .a-price .a-offscreen")
-    price_text = clean_price(price_elem.get_text()) if price_elem else ""
-
-    # Prezzo vecchio
-    old_price_elem = soup.select_one(".priceBlockStrikePriceString, .a-text-price .a-offscreen")
-    old_price_text = clean_price(old_price_elem.get_text()) if old_price_elem else ""
-
-    # Coupon
-    coupon = ""
-    coupon_box = soup.select_one(".couponBadge")
-    if coupon_box:
-        coupon = coupon_box.get_text(strip=True)
-    else:
-        coupon_text = soup.select_one("#vpcButton .a-color-base")
-        if coupon_text:
-            coupon = coupon_text.get_text(strip=True)
-
-    return {
-        "title": title_text,
-        "description": description,
-        "img_url": img_url,
-        "price": price_text,
-        "old_price": old_price_text,
-        "coupon": coupon
-    }
+amazon = AmazonApi(
+    AWS_ACCESS_KEY,
+    AWS_SECRET_KEY,
+    ASSOCIATE_TAG,
+    REGION
+)
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
     data = request.get_json()
-    url = data.get("url") if data else None
+    url = data.get("url")
     if not url:
         return jsonify({"error": "Missing URL"}), 400
 
-    result = scrape_amazon_data(url)
-    return jsonify(result)
+    # Estrai ASIN dall'URL Amazon
+    asin = None
+    import re
+    match = re.search(r"/dp/([A-Z0-9]{10})", url)
+    if match:
+        asin = match.group(1)
+    else:
+        return jsonify({"error": "URL non valido o ASIN non trovato"}), 400
+
+    try:
+        products = amazon.get_items(asin)
+        if not products or len(products) == 0:
+            return jsonify({"error": "Prodotto non trovato"}), 404
+
+        product = products[0]
+
+        response = {
+            "title": product.title,
+            "description": product.features[0] if product.features else "",
+            "img_url": product.images[0].url if product.images else "",
+            "price": product.price_and_currency.price if product.price_and_currency else "",
+            "old_price": "",  # PA API non fornisce prezzo vecchio in modo diretto
+            "coupon": ""      # Non disponibile direttamente da PA API
+        }
+        return jsonify(response)
+
+    except AmazonException as e:
+        return jsonify({"error": f"Errore Amazon PA API: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
